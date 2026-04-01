@@ -51,12 +51,12 @@ lazy_static! {
 pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
     match _trace_request {
         0 => {
-            let value = unsafe {*(id as *const u8)};
+            let value = unsafe {*(_id as *const u8)};
             value as isize
         },
         1 => {
             unsafe {
-                *(id as *mut u8) = data as u8;
+                *(_id as *mut u8) = _data as u8;
             }
             0
         },
