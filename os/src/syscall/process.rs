@@ -5,6 +5,8 @@ use crate::{
 };
 use lazy_static::lazy_static;
 use crate::sync::UPSafeCell;
+use alloc::vec;
+use alloc::vec::Vec;
 
 
 #[repr(C)]
@@ -61,7 +63,7 @@ pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
             0
         },
         2 => {
-            let mut counts = syscall_count.lock();
+            let mut counts = syscall_count.exclusive_access();
             counts[_id] += 1;
             counts[_id] as isize
         },
