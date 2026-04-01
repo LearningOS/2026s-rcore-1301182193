@@ -3,6 +3,9 @@ use crate::{
     task::{exit_current_and_run_next, suspend_current_and_run_next},
     timer::get_time_us,
 };
+use lazy_static::lazy_static;
+use crate::sync::UPSafeCell;
+
 
 #[repr(C)]
 #[derive(Debug)]
@@ -25,6 +28,7 @@ pub fn sys_yield() -> isize {
     0
 }
 
+
 /// get time with second and microsecond
 pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
@@ -38,8 +42,31 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     0
 }
 
+
+lazy_static! {
+    pub static ref syscall_count: UPSafeCell<Vec<usize>> = unsafe { UPSafeCell::new(vec![0; 500]) };
+}
+
 // TODO: implement the syscall
 pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
-    trace!("kernel: sys_trace");
-    -1
+    match _trace_request {
+        0 => {
+            let value = unsafe {*(id as *const u8)};
+            value as isize
+        },
+        1 => {
+            unsafe {
+                *(id as *mut u8) = data as u8;
+            }
+            0
+        },
+        2 => {
+            let mut counts = syscall_count.lock();
+            counts[_id] += 1;
+            counts[_id] as isize
+        },
+        _ => {
+            -1
+        }
+    }
 }
