@@ -154,6 +154,8 @@ impl PageTable {
     /// get the token from the page table
     pub fn token(&self) -> usize {
         8usize << 60 | self.root_ppn.0
+        //8usize << 60: 8 的二进制是 1000，左移 60 位，即把 1000放到 [63:60],代表MODE：SV39
+        // self.root_ppn.0 代表的是 root_ppn 这个元组结构体的第 0 个字段
     }
 }
 

@@ -30,9 +30,14 @@ extern "C" {
 
 lazy_static! {
     /// The kernel's initial memory mapping(kernel address space)
+    /// static ref：static 是说这个变量是全局的，ref 是说使用这边变量的时候，拿到的的 &Arc<UPsafeCell>
     pub static ref KERNEL_SPACE: Arc<UPSafeCell<MemorySet>> =
         Arc::new(unsafe { UPSafeCell::new(MemorySet::new_kernel()) });
+        //这里是 UPsafeCell: 这是自己实现的，单核处理器内部可变引用
 }
+//定义一个全局变量 KERNEL_SPACE，但不是程序一开始就创建，而是第一次用到时才创建
+
+
 /// address space
 pub struct MemorySet {
     page_table: PageTable,
@@ -225,8 +230,14 @@ impl MemorySet {
     pub fn activate(&self) {
         let satp = self.page_table.token();
         unsafe {
+            //satp 里存的是：当前地址空间（页表）的信息 
+            //satp = “用什么分页模式”  +   “页表在哪”
+            //satp的全称： Supervisor Address Translation and Protection
+            //S 模式下的“地址转换与保护”寄存器
             satp::write(satp);
             asm!("sfence.vma");
+            //sfence.vma = 清空虚拟地址转换缓存（TLB）
+            //这是 RISC-V CPU 硬件实现的指令
         }
     }
     /// Translate a virtual page number to a page table entry
