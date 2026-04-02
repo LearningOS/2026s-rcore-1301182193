@@ -1,0 +1,5 @@
+cargo:rerun-if-changed=../ci-user/user/src/
+cargo:rerun-if-changed=../ci-user/user/build/bin/
+app_0: ch2b_bad_address
+app_1: ch2b_bad_instructions
+app_2: ch2b_bad_register
