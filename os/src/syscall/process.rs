@@ -1,12 +1,10 @@
 //! Process management syscalls
 use crate::{
-    task::{exit_current_and_run_next, suspend_current_and_run_next},
+    task::{
+        exit_current_and_run_next, get_current_task_syscall_times, suspend_current_and_run_next,
+    },
     timer::get_time_us,
 };
-
-
-use crate::syscall::syscall_count;
-
 
 #[repr(C)]
 #[derive(Debug)]
@@ -64,11 +62,7 @@ pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
             0
         },
         2 => {
-            let counts = syscall_count.exclusive_access();
-            match counts.get(_id) {
-                Some(&v) => v as isize,
-                None => 0 as isize,
-            }
+            get_current_task_syscall_times(_id) as isize
         },
         _ => {
             -1

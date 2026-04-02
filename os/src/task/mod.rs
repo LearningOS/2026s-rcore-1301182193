@@ -11,10 +11,13 @@
 
 mod context;
 mod switch;
+
+//！ 允许模块重名嵌套，比如 task 文件夹下，有 task.rs 文件在里面
+//！ 这个#[allow(clippy::module_inception)]只作用于下面的 mod task，
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::MAX_APP_NUM;
+use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use lazy_static::*;
@@ -54,11 +57,14 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            syscall_times: [0; MAX_SYSCALL_NUM],
         }; MAX_APP_NUM];
+
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
             task.task_status = TaskStatus::Ready;
         }
+
         TaskManager {
             num_app,
             inner: unsafe {
@@ -70,6 +76,7 @@ lazy_static! {
         }
     };
 }
+
 
 impl TaskManager {
     /// Run the first task in task list.
@@ -135,6 +142,24 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    fn update_current_task_syscall_times(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if syscall_id < MAX_SYSCALL_NUM {
+            inner.tasks[current].syscall_times[syscall_id] += 1;
+        }
+    }
+
+    fn get_current_task_syscall_times(&self, syscall_id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if syscall_id < MAX_SYSCALL_NUM {
+            inner.tasks[current].syscall_times[syscall_id] as usize
+        } else {
+            0
+        }
+    }
 }
 
 /// Run the first task in task list.
@@ -168,4 +193,14 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// Increase syscall counter of the current running task for a syscall id.
+pub fn update_current_task_syscall_times(syscall_id: usize) {
+    TASK_MANAGER.update_current_task_syscall_times(syscall_id);
+}
+
+/// Query syscall counter of the current running task for a syscall id.
+pub fn get_current_task_syscall_times(syscall_id: usize) -> usize {
+    TASK_MANAGER.get_current_task_syscall_times(syscall_id)
 }

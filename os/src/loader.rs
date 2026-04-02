@@ -9,6 +9,8 @@ use crate::config::*;
 use crate::trap::TrapContext;
 use core::arch::asm;
 
+//repr 是“表示方式”的属性，用来告诉编译器这个类型在内存里怎么摆放。
+//表示 KernelStack 这种类型的对象，放到内存里时，它的起始地址必须是 4096 的倍数。
 #[repr(align(4096))]
 #[derive(Copy, Clone)]
 struct KernelStack {
@@ -50,6 +52,11 @@ impl UserStack {
 
 /// Get base address of app i.
 fn get_base_i(app_id: usize) -> usize {
+    APP_BASE_ADDRESS + app_id * APP_SIZE_LIMIT
+}
+
+/// Get base address of app i.
+fn get_vase_i(app_id: usize) -> usize {
     APP_BASE_ADDRESS + app_id * APP_SIZE_LIMIT
 }
 
