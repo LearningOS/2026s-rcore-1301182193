@@ -3,10 +3,7 @@ use crate::{
     task::{exit_current_and_run_next, suspend_current_and_run_next},
     timer::get_time_us,
 };
-use lazy_static::lazy_static;
-use crate::sync::UPSafeCell;
-use alloc::vec;
-use alloc::vec::Vec;
+
 
 use crate::syscall::syscall_count;
 
@@ -22,7 +19,6 @@ pub struct TimeVal {
 
 /// task exits and submit an exit code
 pub fn sys_exit(exit_code: i32) -> ! {
-    syscall_count[93] += 1;
     trace!("[kernel] Application exited with code {}", exit_code);
     exit_current_and_run_next();
     panic!("Unreachable in sys_exit!");
@@ -31,7 +27,6 @@ pub fn sys_exit(exit_code: i32) -> ! {
 /// current task gives up resources for other tasks
 pub fn sys_yield() -> isize {
 
-    syscall_count[124] += 1;
     trace!("kernel: sys_yield");
     suspend_current_and_run_next();
     0
@@ -41,7 +36,6 @@ pub fn sys_yield() -> isize {
 /// get time with second and microsecond
 pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     
-    syscall_count[169] += 1;
     trace!("kernel: sys_get_time");
     let us = get_time_us();
     unsafe {
@@ -58,8 +52,6 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 
 // TODO: implement the syscall
 pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
-    syscall_count[410] += 1;
-
     match _trace_request {
         0 => {
             let value = unsafe {*(_id as *const u8)};
@@ -72,8 +64,11 @@ pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
             0
         },
         2 => {
-            let mut counts = syscall_count.exclusive_access();
-            counts[_id] as isize
+            let counts = syscall_count.exclusive_access();
+            match counts.get(_id) {
+                Some(&v) => v as isize,
+                None => 0 as isize,
+            }
         },
         _ => {
             -1
