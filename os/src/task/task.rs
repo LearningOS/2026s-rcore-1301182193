@@ -24,5 +24,5 @@ pub enum TaskStatus {
     /// running
     Running,
     /// exited
-    Exited.
+    Exited,
 }

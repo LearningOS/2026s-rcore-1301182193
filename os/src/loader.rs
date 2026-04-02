@@ -55,11 +55,6 @@ fn get_base_i(app_id: usize) -> usize {
     APP_BASE_ADDRESS + app_id * APP_SIZE_LIMIT
 }
 
-/// Get base address of app i.
-fn get_vase_i(app_id: usize) -> usize {
-    APP_BASE_ADDRESS + app_id * APP_SIZE_LIMIT
-}
-
 /// Get the total number of applications.
 pub fn get_num_app() -> usize {
     extern "C" {
