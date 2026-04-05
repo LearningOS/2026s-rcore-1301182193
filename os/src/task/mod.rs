@@ -17,10 +17,12 @@ mod task;
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
+
+use crate::mm::*;
+use crate::task::task::*;
 use alloc::vec::Vec;
 use lazy_static::*;
 use switch::__switch;
-pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
 
@@ -126,6 +128,34 @@ impl TaskManager {
         inner.tasks[inner.current_task].get_trap_cx()
     }
 
+    /// Get the current task's syscall times
+    fn get_current_task_syscall_times(&self, id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        inner.tasks[inner.current_task].syscall_times[id]
+    }
+
+    /// Update the current task's syscall times
+    fn update_current_task_syscall_times(&self, id: usize) {
+        
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_times[id] += 1;
+    }
+
+    /// insert framed area
+    fn insert_framed_area(&self, start_va: VirtAddr, end_va: VirtAddr, perm: MapPermission) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].insert_framed_area(start_va, end_va, perm);
+    }
+
+    /// remove framed area
+    fn remove_framed_area(&self, start_vpn: VirtPageNum, end_vpn: VirtPageNum) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].remove_framed_area(start_vpn, end_vpn);
+    }
+
     /// Change the current 'Running' task's program break
     pub fn change_current_program_brk(&self, size: i32) -> Option<usize> {
         let mut inner = self.inner.exclusive_access();
@@ -201,4 +231,24 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Get current task syscall times
+pub fn get_current_task_syscall_times(id: usize) -> usize {
+    TASK_MANAGER.get_current_task_syscall_times(id)
+}
+
+/// Update current task syscall times
+pub fn update_current_task_syscall_times(id: usize) {
+    TASK_MANAGER.update_current_task_syscall_times(id);
+}
+
+/// insert framed area
+pub fn insert_framed_area(start_va: VirtAddr, end_va: VirtAddr, perm: MapPermission) {
+    TASK_MANAGER.insert_framed_area(start_va, end_va, perm);
+}
+
+/// Remove framed area
+pub fn remove_framed_area(start_vpn: VirtPageNum, end_vpn: VirtPageNum) {
+    TASK_MANAGER.remove_framed_area(start_vpn, end_vpn);
 }

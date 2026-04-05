@@ -1,5 +1,11 @@
 //! Process management syscalls
+#![allow(unused)]
 use crate::task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next};
+use crate::timer::*;
+use crate::mm::*;
+use crate::config::*;
+use crate::task::*;
+use crate::mm::frame_dealloc;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -25,28 +31,145 @@ pub fn sys_yield() -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
-    -1
+    let us = get_time_us();
+    let sec = us / 1_000_000;
+    let usec = us % 1_000_000;
+
+    let page_table = PageTable::from_token(current_user_token());
+
+    let base = ts as usize;
+    let ptr_sec = base;
+    let ptr_usec = base + core::mem::size_of::<usize>();
+
+    let vpn_sec: VirtPageNum = VirtAddr::from(ptr_sec).floor();
+    let vpn_usec: VirtPageNum = VirtAddr::from(ptr_usec).floor();
+
+    let ppn_sec = page_table.translate(vpn_sec).unwrap().ppn();
+    let ppn_usec = page_table.translate(vpn_usec).unwrap().ppn();
+
+    let pa_sec = ((ppn_sec.0 << PAGE_SIZE_BITS) | (ptr_sec & ((1 << PAGE_SIZE_BITS) - 1))) as *mut usize;
+    let pa_usec = ((ppn_usec.0 << PAGE_SIZE_BITS) | (ptr_usec & ((1 << PAGE_SIZE_BITS) - 1))) as *mut usize;
+
+    unsafe {
+        *pa_sec = sec;
+        *pa_usec = usec;
+    }
+
+    0
+
 }
 
 /// TODO: Finish sys_trace to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
-pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
+pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
     trace!("kernel: sys_trace");
-    -1
+    match trace_request {
+        0 => {
+            let vpn = VirtAddr::from(id).floor();
+            let page_table = PageTable::from_token(current_user_token());
+            let pte = page_table.translate(vpn);
+            match pte {
+                Some(pte) => {
+                    if !pte.readable() {
+                        return -1;
+                    }
+                },
+                None => {
+                    return -1;
+                }
+            }
+            let ppn = page_table.translate(vpn).unwrap().ppn();
+            let pa = ((ppn.0 << PAGE_SIZE_BITS) + (id & ((1 << PAGE_SIZE_BITS) - 1))) as *const u8;
+            let value = unsafe {*pa};
+            value as isize
+        },
+        1 => {
+            let vpn = VirtAddr::from(id).floor();
+            let page_table = PageTable::from_token(current_user_token());
+            let pte = page_table.translate(vpn);
+            match pte {
+                Some(pte) => {
+                    if !pte.writable() {
+                        return -1;
+                    }
+                },
+                None => {
+                    return -1;
+                }
+            }
+            let ppn = page_table.translate(vpn).unwrap().ppn();
+            let pa = ((ppn.0 << PAGE_SIZE_BITS) + (id & ((1 << PAGE_SIZE_BITS) - 1))) as *mut u8;
+            unsafe {
+                *pa = data as u8;
+            }
+            0
+        },
+        2 => {
+            get_current_task_syscall_times(id) as isize
+        },
+        _ => {
+            -1
+        }
+    }
 }
 
 // YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
+    trace!("kernel: sys_mmap");
+    if len == 0 {
+        return 0;
+    }
+    if port & (!0x7) != 0 || port & (0x7) == 0 {
+        return -1;
+    }
+    let start_va = VirtAddr::from(start);
+    let end_va = VirtAddr::from(start + len);
+
+    let start_vpn = start_va.ceil();
+    let end_vpn = end_va.ceil();
+
+    let page_table = PageTable::from_token(current_user_token());
+    for vpn in VPNRange::new(start_vpn, end_vpn) {
+        let pte = page_table.translate(vpn);
+        if pte.is_some() {
+            return -1;
+        }
+    }
+    let mut perm = MapPermission::U;
+    if (port >> 0 & 1) == 1 {
+        perm |= MapPermission::R;
+    }
+
+    if (port >> 1 & 1) == 1 {
+        perm |= MapPermission::W;
+    }
+
+    if (port >> 2 & 1) == 1{
+        perm |= MapPermission::X;
+    }
+    insert_framed_area(start_va, end_va, perm);
+    0
 }
 
 // YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+pub fn sys_munmap(start: usize, len: usize) -> isize {
+    trace!("kernel: sys_munmap");
+    let start_va = VirtAddr::from(start);
+    let end_va = VirtAddr::from(start + len);
+
+    let start_vpn = start_va.floor();
+    let end_vpn = end_va.ceil();
+    let mut page_table = PageTable::from_token(current_user_token());
+    for vpn in VPNRange::new(start_vpn, end_vpn) {
+         let pte = page_table.translate(vpn);
+         if pte.is_none() {
+             return -1;
+         }
+    }
+    remove_framed_area(start_vpn, end_vpn);
+    0
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {
