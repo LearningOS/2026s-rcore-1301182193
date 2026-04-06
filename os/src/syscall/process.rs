@@ -5,7 +5,6 @@ use crate::timer::*;
 use crate::mm::*;
 use crate::config::*;
 use crate::task::*;
-use crate::mm::frame_dealloc;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -72,7 +71,7 @@ pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
             let pte = page_table.translate(vpn);
             match pte {
                 Some(pte) => {
-                    if !pte.readable() {
+                    if !pte.readable() || !pte.flags().contains(PTEFlags::U) {
                         return -1;
                     }
                 },
@@ -91,7 +90,7 @@ pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
             let pte = page_table.translate(vpn);
             match pte {
                 Some(pte) => {
-                    if !pte.writable() {
+                    if !pte.writable() || !pte.flags().contains(PTEFlags::U) {
                         return -1;
                     }
                 },
@@ -121,20 +120,22 @@ pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
     if len == 0 {
         return 0;
     }
-    if port & (!0x7) != 0 || port & (0x7) == 0 {
+    if start % PAGE_SIZE != 0 || port & (!0x7) != 0 || port & (0x7) == 0 {
         return -1;
     }
     let start_va = VirtAddr::from(start);
     let end_va = VirtAddr::from(start + len);
 
-    let start_vpn = start_va.ceil();
+    let start_vpn = start_va.floor();
     let end_vpn = end_va.ceil();
 
     let page_table = PageTable::from_token(current_user_token());
     for vpn in VPNRange::new(start_vpn, end_vpn) {
         let pte = page_table.translate(vpn);
-        if pte.is_some() {
-            return -1;
+        if let Some(pte) = pte {
+            if pte.is_valid() {
+                return -1;
+            }
         }
     }
     let mut perm = MapPermission::U;
@@ -156,6 +157,12 @@ pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
 // YOUR JOB: Implement munmap.
 pub fn sys_munmap(start: usize, len: usize) -> isize {
     trace!("kernel: sys_munmap");
+    if len == 0 {
+        return 0;
+    }
+    if start % PAGE_SIZE != 0 {
+        return -1;
+    }
     let start_va = VirtAddr::from(start);
     let end_va = VirtAddr::from(start + len);
 
@@ -163,10 +170,11 @@ pub fn sys_munmap(start: usize, len: usize) -> isize {
     let end_vpn = end_va.ceil();
     let mut page_table = PageTable::from_token(current_user_token());
     for vpn in VPNRange::new(start_vpn, end_vpn) {
-         let pte = page_table.translate(vpn);
-         if pte.is_none() {
-             return -1;
-         }
+        let pte = page_table.translate(vpn);
+        match pte {
+            Some(pte) if pte.is_valid() => {}
+            _ => return -1,
+        }
     }
     remove_framed_area(start_vpn, end_vpn);
     0
