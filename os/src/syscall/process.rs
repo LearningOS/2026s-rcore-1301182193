@@ -2,13 +2,12 @@
 use alloc::sync::Arc;
 
 use crate::{
-    loader::get_app_data_by_name,
-    mm::{translated_refmut, translated_str},
-    task::{
-        add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next,
-    },
+    config::{PAGE_SIZE_BITS, PAGE_SIZE}, loader::get_app_data_by_name, mm::{MapPermission, PageTable, VPNRange, VirtAddr, translated_refmut, translated_str}, task::{
+        TaskControlBlock, add_task, current_task, current_user_token, exit_current_and_run_next, insert_framed_area, suspend_current_and_run_next, remove_area_with_start_vpn, set_priority 
+    }, timer::get_time_us
 };
+
+
 
 #[repr(C)]
 #[derive(Debug)]
@@ -105,30 +104,100 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_get_time",
         current_task().unwrap().pid.0
     );
-    -1
+    let us = get_time_us();
+    let sec = us / 1_000_000;
+    let usec = us % 1_000_000;
+
+    let sec_va = VirtAddr::from(ts as usize);
+    let usec_va = VirtAddr::from(ts as usize + core::mem::size_of::<usize>());
+
+    let token = current_user_token();
+    let page_table = PageTable::from_token(token);
+
+    let sec_pte = page_table.translate(sec_va.floor());
+    let usec_pte = page_table.translate(usec_va.floor());
+
+    if sec_pte.is_none() || usec_pte.is_none() {
+        return -1;
+    }
+
+    let sec_pa = ((sec_pte.unwrap().ppn().0 << PAGE_SIZE_BITS) + sec_va.page_offset()) as *mut usize;
+    let usec_pa = ((usec_pte.unwrap().ppn().0 << PAGE_SIZE_BITS) + usec_va.page_offset()) as *mut usize;
+    unsafe {
+        *sec_pa = sec;
+        *usec_pa = usec;
+    }
+    0
 }
 
 /// YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_mmap",
         current_task().unwrap().pid.0
     );
-    -1
+    if start % PAGE_SIZE != 0 || (port & 0x07) == 0 || (port & (!0x07)) != 0{
+        return -1;
+    }
+    let start_va = VirtAddr::from(start);
+    let end_va = VirtAddr::from(start + len);
+    let start_vpn = start_va.floor();
+    let end_vpn = end_va.ceil();
+    let token = current_user_token();
+    let page_table = PageTable::from_token(token);
+    for vpn in VPNRange::new(start_vpn, end_vpn) {
+        let pte = page_table.translate(vpn);
+        if let Some(pte) = pte {
+            if pte.is_valid() {
+                return -1;
+            }
+        }
+    }
+    let mut perm: MapPermission = MapPermission::U;
+    if port >> 0 & 1 == 1 {
+        perm |= MapPermission::R;
+    }
+
+    if port >> 1 & 1 == 1 {
+        perm |= MapPermission::W;
+    }
+    
+    if port >> 2 & 1 == 1 {
+        perm |= MapPermission::X;
+    }
+    insert_framed_area(start_va, end_va, perm);
+    0
 }
 
 /// YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
+pub fn sys_munmap(start: usize, len: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_munmap",
         current_task().unwrap().pid.0
     );
-    -1
+    if start % PAGE_SIZE != 0 {
+        return -1;
+    }
+    let start_va = VirtAddr::from(start);
+    let end_va = VirtAddr::from(start + len);
+    let start_vpn = start_va.floor();
+    let end_vpn = end_va.ceil();
+    let page_table = PageTable::from_token(current_user_token());
+    for vpn in VPNRange::new(start_vpn, end_vpn) {
+        let pte = page_table.translate(vpn);
+        if let Some(pte) = pte {
+            if !pte.is_valid() {
+                return -1;
+            }
+        }
+    }
+    remove_area_with_start_vpn(start_vpn);
+    0
 }
 
 /// change data segment size
@@ -143,19 +212,40 @@ pub fn sys_sbrk(size: i32) -> isize {
 
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
-pub fn sys_spawn(_path: *const u8) -> isize {
+pub fn sys_spawn(path: *const u8) -> isize {
     trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_spawn",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_user_token();
+    let name = translated_str(token, path);
+    let data = get_app_data_by_name(name.as_str());
+    if let None = data {
+        return -1;
+    }
+    let new_task = Arc::new(TaskControlBlock::new(data.unwrap()));
+    let pid = new_task.pid.0;
+    {
+        let current = current_task().unwrap();
+        current
+            .inner_exclusive_access()
+            .children
+            .push(new_task.clone());
+        new_task.inner_exclusive_access().parent = Some(Arc::downgrade(&current));
+    }
+    add_task(new_task);
+    pid as isize
 }
 
 // YOUR JOB: Set task priority.
-pub fn sys_set_priority(_prio: isize) -> isize {
+pub fn sys_set_priority(prio: isize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_set_priority",
         current_task().unwrap().pid.0
     );
-    -1
+    if prio < 2 {
+        return -1;
+    }
+    set_priority(prio);
+    prio
 }

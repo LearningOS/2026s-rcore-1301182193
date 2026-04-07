@@ -123,7 +123,7 @@ pub fn trap_return() -> ! {
         fn __alltraps();
         fn __restore();
     }
-    let restore_va = __restore as usize - __alltraps as usize + TRAMPOLINE;
+    let restore_va: usize = __restore as usize - __alltraps as usize + TRAMPOLINE;
     // trace!("[kernel] trap_return: ..before return");
     unsafe {
         asm!(
