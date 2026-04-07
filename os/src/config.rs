@@ -10,7 +10,7 @@ pub const KERNEL_STACK_SIZE: usize = 4096 * 2;
 pub const KERNEL_HEAP_SIZE: usize = 0x200_0000;
 
 ///big stride for stride algorithm
-pub const BIG_STRIDE: usize = usize::MAX;
+pub const BIG_STRIDE: usize = 0x1_000_000;
 
 /// page size : 4KB
 pub const PAGE_SIZE: usize = 0x1000;
