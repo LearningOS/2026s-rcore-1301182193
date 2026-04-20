@@ -9,6 +9,7 @@ use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
+use crate::mm::{VirtAddr, MapPermission, VirtPageNum};
 use alloc::sync::Arc;
 use lazy_static::*;
 
@@ -43,6 +44,21 @@ impl Processor {
     ///Get current task in cloning semanteme
     pub fn current(&self) -> Option<Arc<TaskControlBlock>> {
         self.current.as_ref().map(Arc::clone)
+    }
+
+    ///insert a framed area
+    pub fn insert_framed_area(&mut self, start_va: VirtAddr, end_va: VirtAddr, perm: MapPermission) {
+        self.current().unwrap().insert_framed_area(start_va, end_va, perm);
+    }
+
+    /// remove a framed area
+    pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) {
+        self.current().unwrap().remove_area_with_start_vpn(start_vpn);
+    }
+
+    /// set priority
+    pub fn set_prio(&mut self, prio: isize) {
+        self.current().unwrap().set_prio(prio);
     }
 }
 
@@ -108,4 +124,22 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
     unsafe {
         __switch(switched_task_cx_ptr, idle_task_cx_ptr);
     }
+}
+
+/// insert a area 
+pub fn insert_framed_area(start_va: VirtAddr, end_va: VirtAddr, perm: MapPermission) {
+    let mut processor = PROCESSOR.exclusive_access();
+    processor.insert_framed_area(start_va, end_va, perm);   
+}
+
+/// remove a area
+pub fn remove_area_with_start_vpn(start_vpn: VirtPageNum) {
+    let mut processor = PROCESSOR.exclusive_access();
+    processor.remove_area_with_start_vpn(start_vpn);
+}
+
+/// set priority
+pub fn set_prio(prio: isize) {
+    let mut processor = PROCESSOR.exclusive_access();
+    processor.set_prio(prio);
 }

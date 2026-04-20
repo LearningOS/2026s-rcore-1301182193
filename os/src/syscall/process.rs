@@ -4,11 +4,14 @@ use alloc::sync::Arc;
 
 use crate::{
     fs::{open_file, OpenFlags},
-    mm::{translated_refmut, translated_str},
+    mm::{translated_refmut, translated_str, VirtAddr, PageTable, MapPermission, VPNRange},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next,
+        suspend_current_and_run_next, insert_framed_area, remove_area_with_start_vpn,
+        TaskControlBlock, set_prio
     },
+    timer::{get_time_us},
+    config::{PAGE_SIZE}
 };
 
 #[repr(C)]
@@ -105,30 +108,94 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_get_time",
         current_task().unwrap().pid.0
     );
-    -1
+
+    let us = get_time_us();
+    let sec = us / 1_000_000;
+    let usec = us % 1_000_000;
+
+    let sec_va = VirtAddr::from(ts as usize);
+    let usec_va = VirtAddr::from(ts as usize + core::mem::size_of::<usize>());
+
+    let token = current_user_token();
+    let page_table = PageTable::from_token(token);
+
+    let sec_pa = page_table.translate_va(sec_va).unwrap().0 as *mut usize;
+    let usec_pa = page_table.translate_va(usec_va).unwrap().0 as *mut usize;
+
+    unsafe {
+        *sec_pa = sec;
+        *usec_pa = usec;
+    }
+    0
 }
 
 /// YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_mmap",
         current_task().unwrap().pid.0
     );
-    -1
+    if start % PAGE_SIZE != 0 || port & 0x07 == 0 || port & (!0x07) != 0 {
+        return -1;
+    }
+
+    let start_va = VirtAddr::from(start);
+    let end_va = VirtAddr::from(start + len);
+
+    let start_vpn = start_va.floor();
+    let end_vpn = end_va.ceil();
+
+    let token = current_user_token();
+    let page_table = PageTable::from_token(token);
+
+    for vpn in VPNRange::new(start_vpn, end_vpn) {
+        let pte = page_table.translate(vpn);
+        if pte.is_some() && pte.unwrap().is_valid() {
+            return -1;
+        }
+    }
+
+    let mut perm = MapPermission::U;
+    if port & (1 << 0) != 0 {
+        perm |= MapPermission::R;
+    }
+    if port & (1 << 1) != 0 {
+        perm |= MapPermission::W;
+    }
+    if port & (1 << 2) != 0 {
+        perm |= MapPermission::X;
+    }
+    insert_framed_area(start_va, end_va, perm);
+    0
 }
 
 /// YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
+pub fn sys_munmap(start: usize, len: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_munmap",
         current_task().unwrap().pid.0
     );
-    -1
+    if start % PAGE_SIZE != 0 {
+        return -1;
+    }
+    let start_vpn = VirtAddr::from(start).floor();
+    let end_vpn = VirtAddr::from(start + len).ceil();
+    
+    let token = current_user_token();
+    let page_table = PageTable::from_token(token);
+    for vpn in VPNRange::new(start_vpn, end_vpn) {
+        let pte = page_table.translate(vpn);
+        if pte.is_none() || !pte.unwrap().is_valid() {
+            return -1;
+        }
+    }
+    remove_area_with_start_vpn(start_vpn);
+    0
 }
 
 /// change data segment size
@@ -143,19 +210,43 @@ pub fn sys_sbrk(size: i32) -> isize {
 
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
-pub fn sys_spawn(_path: *const u8) -> isize {
+pub fn sys_spawn(path: *const u8) -> isize {
     trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_spawn",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_user_token();
+    let path = translated_str(token, path);
+    let mut pid: isize = -1;
+    if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
+        let all_data = app_inode.read_all();
+
+        let new_task = Arc::new(TaskControlBlock::new(&all_data));
+        let parent = current_task().unwrap();
+        pid = new_task.pid.0 as isize; 
+
+        {
+            let mut inner = new_task.inner_exclusive_access();
+            inner.parent = Some(Arc::downgrade(&current_task().unwrap()));
+        }
+        {
+            let mut parent_inner = parent.inner_exclusive_access();
+            parent_inner.children.push(Arc::clone(&new_task));
+        }
+        add_task(Arc::clone(&new_task));
+    }
+    pid
 }
 
 // YOUR JOB: Set task priority.
-pub fn sys_set_priority(_prio: isize) -> isize {
+pub fn sys_set_priority(prio: isize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_set_priority",
         current_task().unwrap().pid.0
     );
-    -1
+    if prio < 2 {
+        return -1;
+    }
+    set_prio(prio);
+    prio
 }

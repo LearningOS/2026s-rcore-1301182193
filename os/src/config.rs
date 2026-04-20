@@ -9,6 +9,9 @@ pub const KERNEL_STACK_SIZE: usize = 4096 * 2;
 /// kernel heap size
 pub const KERNEL_HEAP_SIZE: usize = 0x200_0000;
 
+/// Max stride
+pub const BIG_STRIDE: usize = 1_000_000;
+
 /// page size : 4KB
 pub const PAGE_SIZE: usize = 0x1000;
 /// page size bits: 12

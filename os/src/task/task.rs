@@ -3,7 +3,7 @@ use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 use crate::config::TRAP_CONTEXT_BASE;
 use crate::fs::{File, Stdin, Stdout};
-use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
+use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE, MapPermission, VirtPageNum};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
@@ -36,6 +36,7 @@ impl TaskControlBlock {
         let inner = self.inner_exclusive_access();
         inner.memory_set.token()
     }
+    
 }
 
 pub struct TaskControlBlockInner {
@@ -71,6 +72,12 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Task Priority
+    pub prio: isize,
+
+    /// Stride
+    pub stride: isize,
 }
 
 impl TaskControlBlockInner {
@@ -135,6 +142,8 @@ impl TaskControlBlock {
                     ],
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    prio: 16,
+                    stride: 0,
                 })
             },
         };
@@ -216,6 +225,8 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    prio: parent_inner.prio,
+                    stride: parent_inner.stride,
                 })
             },
         });
@@ -234,6 +245,12 @@ impl TaskControlBlock {
     /// get pid of process
     pub fn getpid(&self) -> usize {
         self.pid.0
+    }
+
+    /// get stride of task
+    pub fn get_stride(&self) -> isize {
+        let inner = self.inner_exclusive_access();
+        inner.stride
     }
 
     /// change the location of the program break. return None if failed.
@@ -260,6 +277,23 @@ impl TaskControlBlock {
         } else {
             None
         }
+    }
+    /// insert a framed area
+    pub fn insert_framed_area(&self, start_va: VirtAddr, end_va: VirtAddr, perm: MapPermission) {
+        let mut inner = self.inner.exclusive_access();
+        inner.memory_set.insert_framed_area(start_va, end_va, perm);
+    }
+
+    /// remove a area
+    pub fn remove_area_with_start_vpn(&self, start_vpn: VirtPageNum) {
+        let mut inner = self.inner.exclusive_access();
+        inner.memory_set.remove_area_with_start_vpn(start_vpn);
+    }
+
+    /// set prio
+    pub fn set_prio(&self, prio: isize) {
+        let mut inner = self.inner.exclusive_access();
+        inner.prio = prio;
     }
 }
 
