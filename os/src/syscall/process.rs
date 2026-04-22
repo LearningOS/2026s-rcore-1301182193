@@ -1,12 +1,13 @@
 use crate::{
     fs::{open_file, OpenFlags},
-    mm::{translated_ref, translated_refmut, translated_str},
+    mm::{translated_ref, translated_refmut, translated_str, PageTable, VirtAddr},
     task::{
         current_process, current_task, current_user_token, exit_current_and_run_next, pid2process,
         suspend_current_and_run_next, SignalFlags,
     },
 };
 use alloc::{string::String, sync::Arc, vec::Vec};
+use crate::timer::{get_time_us};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -151,12 +152,28 @@ pub fn sys_kill(pid: usize, signal: u32) -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_get_time",
         current_task().unwrap().process.upgrade().unwrap().getpid()
     );
-    -1
+    let us = get_time_us();
+    let sec = us / 1_000_000;
+    let usec = us % 1_000_000;
+
+    let token = current_user_token();
+    let page_table = PageTable::from_token(token);
+    let sec_va = VirtAddr::from(ts as usize);
+    let usec_va = VirtAddr::from(ts as usize + core::mem::size_of::<usize>());
+
+    let sec_pa = page_table.translate_va(sec_va).unwrap().0 as *mut usize;
+    let usec_pa = page_table.translate_va(usec_va).unwrap().0 as *mut usize;
+
+    unsafe {
+        (*sec_pa) = sec;
+        (*usec_pa) = usec;
+    }
+    0
 }
 
 /// mmap syscall
