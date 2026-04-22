@@ -12,6 +12,10 @@ pub trait Mutex: Sync + Send {
     fn lock(&self);
     /// Unlock the mutex
     fn unlock(&self);
+    /// Whether this mutex is a blocking mutex
+    fn is_blocking(&self) -> bool {
+        false
+    }
 }
 
 /// Spinlock Mutex struct
@@ -101,5 +105,9 @@ impl Mutex for MutexBlocking {
         } else {
             mutex_inner.locked = false;
         }
+    }
+
+    fn is_blocking(&self) -> bool {
+        true
     }
 }

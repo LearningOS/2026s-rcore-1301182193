@@ -52,18 +52,18 @@ pub struct ProcessControlBlockInner {
     /// Whether to detect the deadlock
     pub detect_deadlock: bool,
     /// Available vector for mutex
-    pub mutex_available: Vec<Option<usize>>,
+    pub mutex_available: Vec<usize>,
     /// Need matrix for mutex
-    pub mutex_need: Vec<Vec<Option<usize>>>,
+    pub mutex_need: Vec<Vec<usize>>,
     /// Allocation matrix for mutex
-    pub mutex_allocation: Vec<Vec<Option<usize>>>,
+    pub mutex_allocation: Vec<Vec<usize>>,
 
     /// Available vector for semaphore
-    pub sema_available: Vec<Option<usize>>,
+    pub sema_available: Vec<usize>,
     /// Need matrix for semaphore
-    pub sema_need: Vec<Vec<Option<usize>>>,
+    pub sema_need: Vec<Vec<usize>>,
     /// Allocation matrix for semaphore
-    pub sema_allocation: Vec<Vec<Option<usize>>>,
+    pub sema_allocation: Vec<Vec<usize>>,
 
     /// Vector for the threads which get mutex
     pub mutex_vector: Vec<Option<usize>>,
