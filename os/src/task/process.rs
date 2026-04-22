@@ -49,6 +49,26 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    /// Whether to detect the deadlock
+    pub detect_deadlock: bool,
+    /// Available vector for mutex
+    pub mutex_available: Vec<Option<usize>>,
+    /// Need matrix for mutex
+    pub mutex_need: Vec<Vec<Option<usize>>>,
+    /// Allocation matrix for mutex
+    pub mutex_allocation: Vec<Vec<Option<usize>>>,
+
+    /// Available vector for semaphore
+    pub sema_available: Vec<Option<usize>>,
+    /// Need matrix for semaphore
+    pub sema_need: Vec<Vec<Option<usize>>>,
+    /// Allocation matrix for semaphore
+    pub sema_allocation: Vec<Vec<Option<usize>>>,
+
+    /// Vector for the threads which get mutex
+    pub mutex_vector: Vec<Option<usize>>,
+    /// Vector for the threads which get semaphore
+    pub sema_vector: Vec<Option<usize>>,
 }
 
 impl ProcessControlBlockInner {
@@ -119,6 +139,15 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    detect_deadlock: false,
+                    mutex_available: Vec::new(),
+                    mutex_need: Vec::new(),
+                    mutex_allocation: Vec::new(),
+                    sema_available: Vec::new(),
+                    sema_need: Vec::new(),
+                    sema_allocation: Vec::new(),
+                    mutex_vector: Vec::new(),
+                    sema_vector: Vec::new(),
                 })
             },
         });
@@ -245,6 +274,16 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    detect_deadlock: false,
+                    
+                    mutex_available: Vec::new(),
+                    mutex_need: Vec::new(),
+                    mutex_allocation: Vec::new(),
+                    sema_available: Vec::new(),
+                    sema_need: Vec::new(),
+                    sema_allocation: Vec::new(),
+                    mutex_vector: Vec::new(),
+                    sema_vector: Vec::new(),
                 })
             },
         });
